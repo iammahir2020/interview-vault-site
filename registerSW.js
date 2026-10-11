@@ -1,0 +1,1 @@
+if('serviceWorker' in navigator) {window.addEventListener('load', () => {navigator.serviceWorker.register('/interview-vault-site/sw.js', { scope: '/interview-vault-site/' })})}
