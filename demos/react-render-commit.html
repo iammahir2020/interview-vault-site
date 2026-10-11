@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; font-src data:">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Render vs commit</title>
+<style>
+  :root { --bg:#fff; --panel:#f3f4fa; --text:#141729; --muted:#5c6282; --border:#dfe3ee; --accent:#5b5bd6;
+    --render:#7c3aed; --commit:#0e7490; --effect:#15803d; --hl:#fff4cc; }
+  :root[data-theme="dark"] { --bg:#141729; --panel:#1b1f35; --text:#eef0fb; --muted:#9aa0c3; --border:#2b3150; --accent:#8b8cf6;
+    --render:#c4b5fd; --commit:#67e8f9; --effect:#4ade80; --hl:#3a3212; }
+  * { box-sizing:border-box; }
+  body { margin:0; padding:14px; font:14px/1.5 ui-sans-serif, system-ui, sans-serif; background:var(--bg); color:var(--text); }
+  .controls { display:flex; flex-wrap:wrap; gap:8px; margin-bottom:12px; align-items:center; }
+  button { font:inherit; font-weight:600; border:1px solid var(--border); background:var(--bg); color:var(--text); border-radius:10px; height:34px; padding:0 14px; cursor:pointer; }
+  button.primary { background:var(--accent); border-color:var(--accent); color:#fff; }
+  .lanes { display:grid; gap:10px; grid-template-columns:1fr 1fr; }
+  @media (max-width:560px) { .lanes { grid-template-columns:1fr; } }
+  .lane { border:1px solid var(--border); border-radius:12px; background:var(--panel); padding:10px 12px; }
+  .lane h4 { margin:0 0 4px; font-size:12px; letter-spacing:.07em; text-transform:uppercase; }
+  .lane.render h4 { color:var(--render); } .lane.commit h4 { color:var(--commit); }
+  .lane p { margin:0 0 8px; font-size:12.5px; color:var(--muted); }
+  ol { margin:0; padding-left:20px; }
+  li { padding:3px 6px; border-radius:6px; font-size:13px; transition: background .25s; }
+  li.on { background:var(--hl); font-weight:600; }
+  li.done { color:var(--muted); }
+  .tree { display:flex; gap:8px; flex-wrap:wrap; margin:10px 0; }
+  .node { padding:6px 10px; border-radius:10px; border:2px solid var(--border); font:12.5px ui-monospace, Menlo, Consolas, monospace; transition: all .3s; }
+  .node.rendering { border-color:var(--render); box-shadow:0 0 0 4px color-mix(in srgb, var(--render) 18%, transparent); }
+  .node.committed { border-color:var(--commit); }
+  .note { font-size:13px; color:var(--muted); min-height:40px; }
+  @media (prefers-reduced-motion: reduce) { * { transition:none !important; } }
+</style>
+</head>
+<body>
+  <div class="controls">
+    <button class="primary" id="step">setCount(c => c + 1) ▶ step</button>
+    <button id="reset">Reset</button>
+  </div>
+  <div class="tree" aria-label="Component tree"><span class="node" id="n-app">&lt;App&gt;</span><span class="node" id="n-counter">&lt;Counter count={0}&gt;</span><span class="node" id="n-label">&lt;Label&gt;</span></div>
+  <p class="note" id="note" aria-live="polite">Click step to follow one state update through both phases.</p>
+  <div class="lanes">
+    <div class="lane render"><h4>Render phase</h4><p>Pure and interruptible. Nothing is visible yet.</p><ol id="render"></ol></div>
+    <div class="lane commit"><h4>Commit phase</h4><p>Synchronous: runs all at once.</p><ol id="commit"></ol></div>
+  </div>
+<script>
+(function () {
+  if (new URLSearchParams(location.search).get('theme') === 'dark') document.documentElement.setAttribute('data-theme', 'dark');
+  var R = ['Queue the update and schedule a render', 'Call Counter() with count = 1', 'Call Label() (its parent re-rendered)', 'Diff the new tree against the current one'];
+  var C = ['Apply the DOM changes (text "0" becomes "1")', 'Attach refs', 'Run useLayoutEffect (before paint)', 'Browser paints the screen', 'Run useEffect (after paint)'];
+  var NOTES = ['React queues the update. Several setStates in one event are batched into one render.',
+    'React calls the component again. This must be pure: it could run twice, or be thrown away.',
+    'Children re-render with their parent unless they are memoised.',
+    'Reconciliation finds the minimal change: one text node.',
+    'Commit starts. Now the DOM changes, all in one go.',
+    'Refs now point at the updated DOM nodes.',
+    'Layout effects run synchronously and can measure the DOM before the user sees anything.',
+    'Only now does the user see "1".',
+    'Passive effects (data fetching, subscriptions) run after paint, so they never block it.',
+    'Done. In the render phase React prepares; in the commit phase it applies.'];
+  var i = -1, $ = function (id) { return document.getElementById(id); };
+  function list(el, items, upto) {
+    el.innerHTML = '';
+    items.forEach(function (t, k) { var li = document.createElement('li'); li.textContent = t; if (k < upto) li.className = 'done'; if (k === upto) li.className = 'on'; el.appendChild(li); });
+  }
+  function render() {
+    var inRender = i >= 0 && i < R.length, ri = inRender ? i : (i >= R.length ? R.length : -1), ci = i >= R.length ? i - R.length : -1;
+    list($('render'), R, ri); list($('commit'), C, ci);
+    ['n-app', 'n-counter', 'n-label'].forEach(function (n) { $(n).className = 'node'; });
+    if (i === 1) $('n-counter').classList.add('rendering');
+    if (i === 2) { $('n-counter').classList.add('rendering'); $('n-label').classList.add('rendering'); }
+    if (i >= 4) { $('n-counter').classList.add('committed'); $('n-counter').textContent = '<Counter count={1}>'; }
+    else $('n-counter').textContent = '<Counter count={0}>';
+    $('note').textContent = i < 0 ? 'Click step to follow one state update through both phases.' : NOTES[Math.min(i, NOTES.length - 1)];
+    $('step').disabled = i >= R.length + C.length;
+  }
+  $('step').onclick = function () { i++; render(); };
+  $('reset').onclick = function () { i = -1; render(); };
+  render();
+})();
+</script>
+<script>(function(){var s=function(){parent.postMessage({type:'iv-demo-height',height:document.documentElement.scrollHeight},'*')};new ResizeObserver(s).observe(document.documentElement);addEventListener('load',s);})();</script>
+</body>
+</html>

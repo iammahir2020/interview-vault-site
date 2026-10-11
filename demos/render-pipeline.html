@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; font-src data:">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Render pipeline</title>
+<style>
+  :root { --bg:#fff; --panel:#f3f4fa; --text:#141729; --muted:#5c6282; --border:#dfe3ee; --accent:#5b5bd6;
+    --on-layout:#7c3aed; --on-paint:#15803d; --on-comp:#0e7490; --off:#c7cddf; }
+  :root[data-theme="dark"] { --bg:#141729; --panel:#1b1f35; --text:#eef0fb; --muted:#9aa0c3; --border:#2b3150; --accent:#8b8cf6;
+    --on-layout:#c4b5fd; --on-paint:#4ade80; --on-comp:#67e8f9; --off:#363c5e; }
+  * { box-sizing:border-box; }
+  body { margin:0; padding:14px; font:14px/1.5 ui-sans-serif, system-ui, sans-serif; background:var(--bg); color:var(--text); }
+  .choices { display:flex; flex-wrap:wrap; gap:8px; margin-bottom:12px; }
+  .choices button { font:inherit; font-weight:600; border:1px solid var(--border); background:var(--bg); color:var(--text);
+    border-radius:999px; height:34px; padding:0 14px; cursor:pointer; }
+  .choices button[aria-pressed="true"] { background:var(--accent); border-color:var(--accent); color:#fff; }
+  .pipe { display:flex; flex-wrap:wrap; align-items:center; gap:6px; margin-bottom:12px; }
+  .stage { padding:8px 12px; border-radius:10px; border:2px solid var(--off); color:var(--muted); font-weight:700; font-size:13px;
+    transition: all .3s cubic-bezier(.2,.8,.2,1); }
+  .arrow { color:var(--muted); }
+  .stage.on { transform: translateY(-2px); color:var(--text); }
+  .stage.js.on, .stage.style.on { border-color:var(--accent); }
+  .stage.layout.on { border-color:var(--on-layout); box-shadow:0 0 0 4px color-mix(in srgb, var(--on-layout) 20%, transparent); }
+  .stage.paint.on { border-color:var(--on-paint); box-shadow:0 0 0 4px color-mix(in srgb, var(--on-paint) 20%, transparent); }
+  .stage.comp.on { border-color:var(--on-comp); box-shadow:0 0 0 4px color-mix(in srgb, var(--on-comp) 20%, transparent); }
+  .track { position:relative; height:84px; border-radius:12px; background:var(--panel); border:1px solid var(--border); overflow:hidden; }
+  .box { position:absolute; top:17px; left:12px; width:50px; height:50px; border-radius:12px; background:var(--accent); }
+  .cost { margin-top:10px; font-size:13px; color:var(--muted); min-height:40px; }
+  .cost b { color:var(--text); }
+  code { font:12.5px ui-monospace, Menlo, Consolas, monospace; background:var(--panel); border:1px solid var(--border); border-radius:6px; padding:1px 5px; }
+  @media (prefers-reduced-motion: reduce) { * { transition:none !important; animation:none !important; } }
+</style>
+</head>
+<body>
+  <div class="choices" role="group" aria-label="Property to animate">
+    <button data-p="left" aria-pressed="true">left / width</button>
+    <button data-p="color" aria-pressed="false">background-color</button>
+    <button data-p="transform" aria-pressed="false">transform / opacity</button>
+  </div>
+  <div class="pipe" aria-label="Pipeline stages">
+    <span class="stage js on">JS</span><span class="arrow">→</span>
+    <span class="stage style on">Style</span><span class="arrow">→</span>
+    <span class="stage layout">Layout</span><span class="arrow">→</span>
+    <span class="stage paint">Paint</span><span class="arrow">→</span>
+    <span class="stage comp">Composite</span>
+  </div>
+  <div class="track"><div class="box" id="box"></div></div>
+  <p class="cost" id="cost" aria-live="polite"></p>
+<script>
+(function () {
+  if (new URLSearchParams(location.search).get('theme') === 'dark') document.documentElement.setAttribute('data-theme', 'dark');
+  var INFO = {
+    left: { stages: ['layout', 'paint', 'comp'], text: '<b>Layout + Paint + Composite every frame.</b> Changing <code>left</code> or <code>width</code> moves geometry, so the browser re-measures and repaints. On a busy page, this is where jank comes from.' },
+    color: { stages: ['paint', 'comp'], text: '<b>Paint + Composite.</b> No geometry changed, so layout is skipped, but pixels still have to be repainted.' },
+    transform: { stages: ['comp'], text: '<b>Composite only.</b> The element sits on its own GPU layer and just slides. Layout and paint are skipped, so this stays smooth even when the main thread is busy.' }
+  };
+  var box = document.getElementById('box'), mode = 'left', t0 = performance.now();
+  var reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  function select(p) {
+    mode = p;
+    document.querySelectorAll('.choices button').forEach(function (b) { b.setAttribute('aria-pressed', String(b.dataset.p === p)); });
+    ['layout', 'paint', 'comp'].forEach(function (s) { document.querySelector('.stage.' + s).classList.toggle('on', INFO[p].stages.indexOf(s) !== -1); });
+    document.getElementById('cost').innerHTML = INFO[p].text;
+    box.style.left = '12px'; box.style.transform = 'none'; box.style.background = '';
+  }
+  document.querySelectorAll('.choices button').forEach(function (b) { b.onclick = function () { select(b.dataset.p); }; });
+  function frame(now) {
+    var w = box.parentElement.clientWidth - 74, k = (Math.sin((now - t0) / 700) + 1) / 2;
+    if (!reduce) {
+      if (mode === 'left') box.style.left = 12 + k * w + 'px';
+      else if (mode === 'transform') box.style.transform = 'translateX(' + k * w + 'px)';
+      else box.style.background = 'hsl(' + Math.round(240 + k * 100) + ' 70% 60%)';
+    }
+    requestAnimationFrame(frame);
+  }
+  select('left'); requestAnimationFrame(frame);
+})();
+</script>
+<script>(function(){var s=function(){parent.postMessage({type:'iv-demo-height',height:document.documentElement.scrollHeight},'*')};new ResizeObserver(s).observe(document.documentElement);addEventListener('load',s);})();</script>
+</body>
+</html>

@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; font-src data:">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Event loop</title>
+<style>
+  :root { --bg:#ffffff; --panel:#f3f4fa; --text:#141729; --muted:#5c6282; --border:#dfe3ee; --accent:#5b5bd6;
+    --micro:#7c3aed; --macro:#0e7490; --sync:#15803d; --hl:#fff4cc; }
+  :root[data-theme="dark"] { --bg:#141729; --panel:#1b1f35; --text:#eef0fb; --muted:#9aa0c3; --border:#2b3150; --accent:#8b8cf6;
+    --micro:#c4b5fd; --macro:#67e8f9; --sync:#4ade80; --hl:#3a3212; }
+  * { box-sizing: border-box; }
+  body { margin:0; padding:14px; font:14px/1.5 ui-sans-serif, system-ui, sans-serif; background:var(--bg); color:var(--text); }
+  .grid { display:grid; gap:10px; grid-template-columns: 1.2fr 1fr; }
+  @media (max-width: 560px) { .grid { grid-template-columns: 1fr; } }
+  .panel { background:var(--panel); border:1px solid var(--border); border-radius:12px; padding:10px 12px; min-height:64px; }
+  h4 { margin:0 0 6px; font-size:11px; letter-spacing:.08em; text-transform:uppercase; color:var(--muted); }
+  pre { margin:0; font:12.5px/1.7 ui-monospace, Menlo, Consolas, monospace; white-space:pre-wrap; }
+  .line { display:block; padding:0 6px; border-radius:6px; transition: background .25s; }
+  .line.on { background:var(--hl); }
+  .items { display:flex; flex-wrap:wrap; gap:6px; min-height:28px; }
+  .item { font:12px ui-monospace, Menlo, Consolas, monospace; padding:3px 8px; border-radius:8px; border:1px solid currentColor;
+    animation: pop .3s cubic-bezier(.2,.8,.2,1); }
+  .item.sync { color:var(--sync); } .item.micro { color:var(--micro); } .item.macro { color:var(--macro); }
+  @keyframes pop { from { transform: translateY(6px) scale(.9); opacity:0 } to { transform:none; opacity:1 } }
+  .stack { display:flex; flex-direction:column-reverse; gap:6px; }
+  .console div { font:12.5px ui-monospace, Menlo, Consolas, monospace; animation: pop .3s; }
+  .controls { display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin:12px 0 10px; }
+  button { font:inherit; font-weight:600; border:1px solid var(--border); background:var(--bg); color:var(--text);
+    border-radius:10px; height:34px; padding:0 14px; cursor:pointer; }
+  button.primary { background:var(--accent); border-color:var(--accent); color:#fff; }
+  button:disabled { opacity:.5; cursor:default; }
+  .note { color:var(--muted); font-size:13px; min-height:40px; }
+  .right { display:flex; flex-direction:column; gap:10px; }
+  @media (prefers-reduced-motion: reduce) { * { animation:none !important; transition:none !important; } }
+</style>
+</head>
+<body>
+  <div class="controls">
+    <button class="primary" id="step">Step ▶</button>
+    <button id="play">Play</button>
+    <button id="reset">Reset</button>
+    <span class="note" id="note" aria-live="polite"></span>
+  </div>
+  <div class="grid">
+    <div class="panel"><h4>Code</h4><pre id="code"></pre></div>
+    <div class="right">
+      <div class="panel"><h4>Call stack</h4><div class="items stack" id="stack"></div></div>
+      <div class="panel"><h4>Microtask queue (Promises)</h4><div class="items" id="micro"></div></div>
+      <div class="panel"><h4>Macrotask queue (timers)</h4><div class="items" id="macro"></div></div>
+      <div class="panel console"><h4>Console</h4><div id="out"></div></div>
+    </div>
+  </div>
+<script>
+(function () {
+  var theme = new URLSearchParams(location.search).get('theme');
+  if (theme === 'dark') document.documentElement.setAttribute('data-theme', 'dark');
+
+  var CODE = [
+    "console.log('A');",
+    "setTimeout(() => console.log('B'), 0);",
+    "Promise.resolve()",
+    "  .then(() => console.log('C'));",
+    "console.log('D');"
+  ];
+  // Each step: which line is active, and the state after it.
+  var STEPS = [
+    { line: 0, stack: ['main()', "log('A')"], out: ['A'], note: "Synchronous code runs first, straight on the call stack." },
+    { line: 1, stack: ['main()', 'setTimeout'], macro: ["() => log('B')"], note: "setTimeout hands its callback to the macrotask queue, even with 0 ms." },
+    { line: 3, stack: ['main()', '.then'], micro: ["() => log('C')"], macro: ["() => log('B')"], note: "A resolved promise's .then goes to the microtask queue." },
+    { line: 4, stack: ['main()', "log('D')"], micro: ["() => log('C')"], macro: ["() => log('B')"], out: ['A', 'D'], note: "Still synchronous, so D prints before anything queued." },
+    { line: -1, stack: [], micro: ["() => log('C')"], macro: ["() => log('B')"], out: ['A', 'D'], note: "The stack is empty. The loop now drains ALL microtasks first." },
+    { line: -1, stack: ["log('C')"], macro: ["() => log('B')"], out: ['A', 'D', 'C'], note: "C runs: the microtask (VIP) line always goes before timers." },
+    { line: -1, stack: ["log('B')"], out: ['A', 'D', 'C', 'B'], note: "Microtasks are empty, so one macrotask runs: B." },
+    { line: -1, stack: [], out: ['A', 'D', 'C', 'B'], note: "Done. Order: A → D → C → B." }
+  ];
+
+  var i = -1, timer = null;
+  var $ = function (id) { return document.getElementById(id); };
+  function chips(el, list, cls) {
+    el.innerHTML = '';
+    (list || []).forEach(function (t) { var s = document.createElement('span'); s.className = 'item ' + cls; s.textContent = t; el.appendChild(s); });
+  }
+  function render() {
+    var s = STEPS[i] || { line: -1, note: 'Press Step to run the code one move at a time.' };
+    $('code').innerHTML = '';
+    CODE.forEach(function (l, n) {
+      var span = document.createElement('span');
+      span.className = 'line' + (n === s.line || (s.line === 3 && n === 2) ? ' on' : '');
+      span.textContent = l; $('code').appendChild(span);
+    });
+    chips($('stack'), s.stack, 'sync'); chips($('micro'), s.micro, 'micro'); chips($('macro'), s.macro, 'macro');
+    $('out').innerHTML = '';
+    (s.out || []).forEach(function (o) { var d = document.createElement('div'); d.textContent = '> ' + o; $('out').appendChild(d); });
+    $('note').textContent = s.note;
+    $('step').disabled = i >= STEPS.length - 1;
+  }
+  function step() { if (i < STEPS.length - 1) { i++; render(); } else stop(); }
+  function stop() { clearInterval(timer); timer = null; $('play').textContent = 'Play'; }
+  $('step').onclick = function () { stop(); step(); };
+  $('reset').onclick = function () { stop(); i = -1; render(); };
+  $('play').onclick = function () {
+    if (timer) return stop();
+    if (i >= STEPS.length - 1) i = -1;
+    $('play').textContent = 'Pause'; step(); timer = setInterval(step, 1400);
+  };
+  render();
+})();
+</script>
+<script>(function(){var s=function(){parent.postMessage({type:'iv-demo-height',height:document.documentElement.scrollHeight},'*')};new ResizeObserver(s).observe(document.documentElement);addEventListener('load',s);})();</script>
+</body>
+</html>

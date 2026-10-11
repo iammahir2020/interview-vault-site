@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; font-src data:">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Box model</title>
+<style>
+  :root { --bg:#fff; --panel:#f3f4fa; --text:#141729; --muted:#5c6282; --border:#dfe3ee; --accent:#5b5bd6;
+    --margin:#fde7c9; --borderc:#f2c94c; --padding:#c9f0d6; --content:#c9daf8; }
+  :root[data-theme="dark"] { --bg:#141729; --panel:#1b1f35; --text:#eef0fb; --muted:#9aa0c3; --border:#2b3150; --accent:#8b8cf6;
+    --margin:#4a3518; --borderc:#8a6d1d; --padding:#1d4a31; --content:#22385f; }
+  * { box-sizing:border-box; }
+  body { margin:0; padding:14px; font:14px/1.5 ui-sans-serif, system-ui, sans-serif; background:var(--bg); color:var(--text); }
+  .controls { display:grid; gap:8px 14px; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); margin-bottom:12px; }
+  label { font-size:12.5px; color:var(--muted); display:flex; flex-direction:column; gap:2px; }
+  input[type=range] { width:100%; accent-color:var(--accent); }
+  .toggle { display:flex; gap:8px; margin-bottom:12px; flex-wrap:wrap; }
+  .toggle button { font:inherit; font-weight:600; border:1px solid var(--border); background:var(--bg); color:var(--text); border-radius:999px; height:32px; padding:0 14px; cursor:pointer; }
+  .toggle button[aria-pressed="true"] { background:var(--accent); border-color:var(--accent); color:#fff; }
+  .stage { background:var(--panel); border:1px dashed var(--border); border-radius:12px; padding:10px; overflow:auto; }
+  .margin { background:var(--margin); display:inline-block; transition: padding .25s; }
+  .box { background:var(--padding); border-style:solid; border-color:var(--borderc); transition: all .25s; }
+  .content { background:var(--content); height:60px; display:grid; place-items:center; font:12px ui-monospace, Menlo, Consolas, monospace; }
+  .readout { margin-top:10px; font:13px ui-monospace, Menlo, Consolas, monospace; }
+  .readout b { color:var(--accent); }
+  .legend { display:flex; gap:10px; flex-wrap:wrap; font-size:12px; color:var(--muted); margin-top:8px; }
+  .legend span::before { content:''; display:inline-block; width:10px; height:10px; border-radius:3px; margin-right:5px; vertical-align:-1px; background:var(--c); }
+  @media (prefers-reduced-motion: reduce) { * { transition:none !important; } }
+</style>
+</head>
+<body>
+  <div class="toggle" role="group" aria-label="box-sizing">
+    <button data-bs="content-box" aria-pressed="true">box-sizing: content-box</button>
+    <button data-bs="border-box" aria-pressed="false">box-sizing: border-box</button>
+  </div>
+  <div class="controls">
+    <label>width: <span id="wv">200</span>px<input type="range" id="w" min="120" max="320" value="200"></label>
+    <label>padding: <span id="pv">20</span>px<input type="range" id="p" min="0" max="40" value="20"></label>
+    <label>border: <span id="bv">6</span>px<input type="range" id="b" min="0" max="20" value="6"></label>
+    <label>margin: <span id="mv">16</span>px<input type="range" id="m" min="0" max="40" value="16"></label>
+  </div>
+  <div class="stage"><div class="margin" id="margin"><div class="box" id="box"><div class="content" id="content">content</div></div></div></div>
+  <div class="readout" id="readout" aria-live="polite"></div>
+  <div class="legend"><span style="--c:var(--margin)">margin</span><span style="--c:var(--borderc)">border</span><span style="--c:var(--padding)">padding</span><span style="--c:var(--content)">content</span></div>
+<script>
+(function () {
+  if (new URLSearchParams(location.search).get('theme') === 'dark') document.documentElement.setAttribute('data-theme', 'dark');
+  var bs = 'content-box', $ = function (id) { return document.getElementById(id); };
+  function update() {
+    var w = +$('w').value, p = +$('p').value, b = +$('b').value, m = +$('m').value;
+    $('wv').textContent = w; $('pv').textContent = p; $('bv').textContent = b; $('mv').textContent = m;
+    var box = $('box');
+    box.style.boxSizing = bs; box.style.width = w + 'px'; box.style.padding = p + 'px'; box.style.borderWidth = b + 'px';
+    $('margin').style.padding = m + 'px';
+    var visible = bs === 'content-box' ? w + 2 * p + 2 * b : w;
+    var content = bs === 'content-box' ? w : Math.max(0, w - 2 * p - 2 * b);
+    $('content').textContent = content + 'px';
+    $('readout').innerHTML = 'width: ' + w + 'px → visible box <b>' + visible + 'px</b>' +
+      (bs === 'content-box' ? ' (' + w + ' + 2×' + p + ' padding + 2×' + b + ' border)' : ' (padding and border fit inside)') +
+      ' · space taken: ' + (visible + 2 * m) + 'px';
+  }
+  ['w', 'p', 'b', 'm'].forEach(function (id) { $(id).oninput = update; });
+  document.querySelectorAll('.toggle button').forEach(function (btn) {
+    btn.onclick = function () { bs = btn.dataset.bs; document.querySelectorAll('.toggle button').forEach(function (x) { x.setAttribute('aria-pressed', String(x === btn)); }); update(); };
+  });
+  update();
+})();
+</script>
+<script>(function(){var s=function(){parent.postMessage({type:'iv-demo-height',height:document.documentElement.scrollHeight},'*')};new ResizeObserver(s).observe(document.documentElement);addEventListener('load',s);})();</script>
+</body>
+</html>

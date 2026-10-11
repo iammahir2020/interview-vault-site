@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; font-src data:">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Closures</title>
+<style>
+  :root { --bg:#ffffff; --panel:#f3f4fa; --text:#141729; --muted:#5c6282; --border:#dfe3ee; --accent:#5b5bd6; --bag:#fff4cc; --bagb:#f2c94c; }
+  :root[data-theme="dark"] { --bg:#141729; --panel:#1b1f35; --text:#eef0fb; --muted:#9aa0c3; --border:#2b3150; --accent:#8b8cf6; --bag:#2a2410; --bagb:#8a6d1d; }
+  * { box-sizing:border-box; }
+  body { margin:0; padding:14px; font:14px/1.5 ui-sans-serif, system-ui, sans-serif; background:var(--bg); color:var(--text); }
+  pre { margin:0 0 12px; padding:10px 12px; border-radius:12px; background:var(--panel); border:1px solid var(--border);
+    font:12.5px/1.7 ui-monospace, Menlo, Consolas, monospace; white-space:pre-wrap; }
+  .row { display:flex; flex-wrap:wrap; gap:10px; align-items:center; margin-bottom:12px; }
+  button { font:inherit; font-weight:600; border:1px solid var(--border); background:var(--bg); color:var(--text);
+    border-radius:10px; height:34px; padding:0 14px; cursor:pointer; }
+  button.primary { background:var(--accent); border-color:var(--accent); color:#fff; }
+  .counters { display:grid; gap:10px; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); }
+  .counter { border:1px solid var(--border); border-radius:14px; padding:12px; background:var(--panel); animation: in .35s cubic-bezier(.2,.8,.2,1); }
+  .counter b { font-family: ui-monospace, Menlo, Consolas, monospace; }
+  .bag { margin:10px 0; padding:10px; border-radius:12px; background:var(--bag); border:1px dashed var(--bagb); text-align:center; }
+  .bag small { display:block; color:var(--muted); font-size:11px; letter-spacing:.06em; text-transform:uppercase; }
+  .n { font:700 26px ui-monospace, Menlo, Consolas, monospace; display:inline-block; }
+  .bump { animation: bump .3s; }
+  @keyframes bump { 50% { transform: scale(1.35); } }
+  @keyframes in { from { opacity:0; transform: translateY(8px); } }
+  .note { color:var(--muted); font-size:13px; }
+  @media (prefers-reduced-motion: reduce) { * { animation:none !important; } }
+</style>
+</head>
+<body>
+<pre>function makeCounter() {
+  let n = 0;               // 🎒 goes into the backpack
+  return () => ++n;        // the returned function keeps it
+}</pre>
+<div class="row">
+  <button class="primary" id="make">const c = makeCounter()</button>
+  <span class="note" id="note" aria-live="polite">Each call creates a new backpack. Make two and click them separately.</span>
+</div>
+<div class="counters" id="list"></div>
+<script>
+(function () {
+  if (new URLSearchParams(location.search).get('theme') === 'dark') document.documentElement.setAttribute('data-theme', 'dark');
+  var names = 'abcdefgh'.split(''), made = 0;
+  function makeCounter() { var n = 0; return function () { return ++n; }; }
+  document.getElementById('make').onclick = function () {
+    if (made >= names.length) return;
+    var name = names[made++], fn = makeCounter();
+    var el = document.createElement('div'); el.className = 'counter';
+    el.innerHTML = '<b>' + name + '()</b><div class="bag"><small>🎒 backpack</small>n = <span class="n">0</span></div>';
+    var btn = document.createElement('button'); btn.textContent = 'call ' + name + '()';
+    var n = el.querySelector('.n');
+    btn.onclick = function () {
+      n.textContent = fn(); n.classList.remove('bump'); void n.offsetWidth; n.classList.add('bump');
+      document.getElementById('note').textContent = name + '() changed only its own n. makeCounter() finished long ago, but the variable lives on.';
+    };
+    el.appendChild(btn); document.getElementById('list').appendChild(el);
+  };
+})();
+</script>
+<script>(function(){var s=function(){parent.postMessage({type:'iv-demo-height',height:document.documentElement.scrollHeight},'*')};new ResizeObserver(s).observe(document.documentElement);addEventListener('load',s);})();</script>
+</body>
+</html>
